@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { readdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
@@ -109,9 +109,12 @@ await migrateImagesToWebp();
 // legacy images without applying EXIF auto-rotation, so most photos (taken in
 // portrait) were saved sideways and the sources were already deleted. This
 // re-rotates the affected files exactly once, using a manually verified list
-// of the images that were already correctly oriented. Safe to delete once
-// applied (guarded by a marker file so it never runs twice).
-const ROTATION_FIX_MARKER = path.join(dataDir, '.rotation-fix-2026-09-applied');
+// of the images that were already correctly oriented. Progress is recorded
+// per-file (not just at the end) so a crash mid-run resumes instead of
+// restarting from file 0. Safe to delete once fully applied.
+sharp.cache(false);
+
+const ROTATION_FIX_PROGRESS_FILE = path.join(dataDir, '.rotation-fix-2026-09-progress.json');
 const ROTATION_FIX_SKIP = new Set([
   'uRkCpUQH6YwPt-hBtZeFP.webp',
   'AqYcNjBc4oHKGAKrF5lvb.webp',
@@ -120,25 +123,35 @@ const ROTATION_FIX_SKIP = new Set([
   'dkwS9aVkTunVxRVBXR1vh.webp',
 ]);
 
-async function fixImageRotationOneTime() {
-  if (existsSync(ROTATION_FIX_MARKER)) return;
+function readRotationFixProgress(): Set<string> {
+  try {
+    return new Set(JSON.parse(readFileSync(ROTATION_FIX_PROGRESS_FILE, 'utf8')));
+  } catch {
+    return new Set();
+  }
+}
 
+async function fixImageRotationOneTime() {
   const files = await readdir(UPLOADS_DIR).catch(() => [] as string[]);
   const webpFiles = files.filter((f) => f.endsWith('.webp'));
+  const done = readRotationFixProgress();
 
   for (const file of webpFiles) {
+    if (done.has(file)) continue;
     const angle = ROTATION_FIX_SKIP.has(file) ? 0 : 90;
-    if (angle === 0) continue;
     const full = path.join(UPLOADS_DIR, file);
-    try {
-      const buffer = await sharp(full).rotate(angle).webp({ quality: 80 }).toBuffer();
-      await writeFile(full, buffer);
-    } catch (err) {
-      console.error(`No se pudo corregir la rotación de ${file}`, err);
+    if (angle !== 0) {
+      try {
+        const buffer = await sharp(full).rotate(angle).webp({ quality: 80 }).toBuffer();
+        await writeFile(full, buffer);
+      } catch (err) {
+        console.error(`No se pudo corregir la rotación de ${file}`, err);
+        continue;
+      }
     }
+    done.add(file);
+    await writeFile(ROTATION_FIX_PROGRESS_FILE, JSON.stringify([...done]));
   }
-
-  await writeFile(ROTATION_FIX_MARKER, new Date().toISOString());
 }
 
 await fixImageRotationOneTime();
