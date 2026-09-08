@@ -242,6 +242,33 @@ async function fixSecondRoundRotationErrorsOneTime() {
 
 await fixSecondRoundRotationErrorsOneTime();
 
+// Manual reset: rather than keep chasing individual rotation mistakes left
+// over from the botched migration above, wipe every product image so they
+// can be re-uploaded from scratch through the now-fixed /api/upload (which
+// correctly auto-orients before encoding to WebP). One-time, guarded by a
+// marker; safe to delete this function once it has run in production.
+const WIPE_ALL_IMAGES_MARKER = path.join(dataDir, '.wipe-all-images-2026-09-applied');
+
+async function wipeAllProductImagesOneTime() {
+  if (existsSync(WIPE_ALL_IMAGES_MARKER)) return;
+
+  db.exec('DELETE FROM product_images');
+  db.exec('UPDATE products SET image_path = NULL');
+
+  const files = await readdir(UPLOADS_DIR).catch(() => [] as string[]);
+  for (const file of files) {
+    try {
+      await unlink(path.join(UPLOADS_DIR, file));
+    } catch (err) {
+      console.error(`No se pudo borrar ${file}`, err);
+    }
+  }
+
+  await writeFile(WIPE_ALL_IMAGES_MARKER, new Date().toISOString());
+}
+
+await wipeAllProductImagesOneTime();
+
 function seed() {
   const categoryCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as { c: number }).c;
   if (categoryCount === 0) {
