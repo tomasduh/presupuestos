@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { BudgetDetail as BudgetDetailType, Product, Category } from '../lib/types';
+import type { BudgetDetail as BudgetDetailType, BudgetItem, Product, Category } from '../lib/types';
 import { formatCOP } from '../lib/format';
 import { FiArrowLeft, FiEdit2, FiMinus, FiPlus, FiSearch, FiTrash2, FiImage } from 'react-icons/fi';
 import AccordionSection from './AccordionSection';
@@ -39,6 +39,17 @@ export default function BudgetDetail({ budgetId }: Props) {
     setLoading(false);
   }
 
+  // Re-fetches just the budget (items + name) after a mutation, without the
+  // `loading` flag: that flag unmounts this whole tree in favor of a single
+  // "Cargando..." line, which loses scroll position and collapses any
+  // accordions the user opened. Products/categories rarely change mid-visit,
+  // so there's no need to refetch those on every add/remove/quantity click.
+  async function refreshBudget() {
+    const res = await fetch(`/api/budgets/${budgetId}`);
+    if (!res.ok) return;
+    setBudget(await res.json());
+  }
+
   useEffect(() => {
     loadAll();
   }, [budgetId]);
@@ -69,28 +80,58 @@ export default function BudgetDetail({ budgetId }: Props) {
     return Array.from(map.entries());
   }, [products, search, filterCategory]);
 
-  async function addProduct(productId: string) {
+  // Each mutation updates local state immediately (optimistic) so the click
+  // feels instant, then reconciles with the server in the background via
+  // refreshBudget() — no loading flash, no lost scroll position.
+  async function addProduct(product: Product) {
+    setBudget((prev) => {
+      if (!prev) return prev;
+      const existing = prev.items.find((i) => i.product_id === product.id);
+      if (existing) {
+        return {
+          ...prev,
+          items: prev.items.map((i) =>
+            i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i
+          ),
+        };
+      }
+      const optimisticItem: BudgetItem = {
+        id: `temp-${product.id}`,
+        product_id: product.id,
+        quantity: 1,
+        name: product.name,
+        price: product.price,
+        image_path: product.image_path,
+        category_id: product.category_id,
+        category_name: product.category_name,
+      };
+      return { ...prev, items: [...prev.items, optimisticItem] };
+    });
     await fetch(`/api/budgets/${budgetId}/items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_id: productId, quantity: 1 }),
+      body: JSON.stringify({ product_id: product.id, quantity: 1 }),
     });
-    loadAll();
+    refreshBudget();
   }
 
   async function removeItem(itemId: string) {
+    setBudget((prev) => (prev ? { ...prev, items: prev.items.filter((i) => i.id !== itemId) } : prev));
     await fetch(`/api/budgets/${budgetId}/items/${itemId}`, { method: 'DELETE' });
-    loadAll();
+    refreshBudget();
   }
 
   async function changeQuantity(itemId: string, quantity: number) {
     if (quantity < 1) return;
+    setBudget((prev) =>
+      prev ? { ...prev, items: prev.items.map((i) => (i.id === itemId ? { ...i, quantity } : i)) } : prev
+    );
     await fetch(`/api/budgets/${budgetId}/items/${itemId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quantity }),
     });
-    loadAll();
+    refreshBudget();
   }
 
   async function saveSettings(e: React.FormEvent<HTMLFormElement>) {
@@ -102,7 +143,7 @@ export default function BudgetDetail({ budgetId }: Props) {
       body: JSON.stringify({ name: nameDraft.trim() }),
     });
     setEditingSettings(false);
-    loadAll();
+    refreshBudget();
   }
 
   if (loading) return <p className="page-subtitle">Cargando...</p>;
@@ -306,7 +347,7 @@ export default function BudgetDetail({ budgetId }: Props) {
                     <button
                       className={added ? 'secondary' : ''}
                       style={{ width: '100%', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-                      onClick={() => addProduct(p.id)}
+                      onClick={() => addProduct(p)}
                     >
                       <FiPlus /> {added ? 'Agregar otro' : 'Agregar'}
                     </button>
