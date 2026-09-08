@@ -1,0 +1,63 @@
+---
+import '../styles/global.css';
+import { FiHome, FiSun, FiMoon } from 'react-icons/fi';
+import { HiOutlineShoppingBag } from 'react-icons/hi2';
+
+interface Props {
+  title?: string;
+}
+
+const { title = 'Mi Presupuesto de Mudanza' } = Astro.props;
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    <script is:inline>
+      (function () {
+        const stored = localStorage.getItem('theme');
+        if (stored) document.documentElement.setAttribute('data-theme', stored);
+      })();
+    </script>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/">🏠 Mi Mudanza</a>
+        <nav class="nav-links">
+          <a href="/" class={currentPath === '/' ? 'active' : ''}>
+            <FiHome aria-hidden="true" /> Presupuestos
+          </a>
+          <a href="/productos" class={currentPath.startsWith('/productos') ? 'active' : ''}>
+            <HiOutlineShoppingBag aria-hidden="true" /> Productos
+          </a>
+          <button id="theme-toggle" class="icon-btn" type="button" aria-label="Cambiar tema">
+            <FiSun className="theme-icon-sun" aria-hidden="true" />
+            <FiMoon className="theme-icon-moon" aria-hidden="true" />
+          </button>
+        </nav>
+      </div>
+    </div>
+    <main class="container">
+      <slot />
+    </main>
+    <script is:inline>
+      (function () {
+        const root = document.documentElement;
+        const btn = document.getElementById('theme-toggle');
+        btn?.addEventListener('click', function () {
+          const current = root.getAttribute('data-theme');
+          const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          const isDark = current ? current === 'dark' : systemDark;
+          const next = isDark ? 'light' : 'dark';
+          root.setAttribute('data-theme', next);
+          localStorage.setItem('theme', next);
+        });
+      })();
+    </script>
+  </body>
+</html>

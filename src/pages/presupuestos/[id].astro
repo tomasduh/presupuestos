@@ -1,0 +1,14 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import BudgetDetail from '../../components/BudgetDetail';
+
+const { id } = Astro.params;
+
+if (!id) {
+  return Astro.redirect('/');
+}
+---
+
+<Layout title="Presupuesto | Mi Mudanza">
+  <BudgetDetail client:load budgetId={id} />
+</Layout>
