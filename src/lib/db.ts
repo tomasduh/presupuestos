@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { readdir, unlink, writeFile } from 'node:fs/promises';
+import { readdir, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
 import sharp from 'sharp';
@@ -155,6 +155,46 @@ async function fixImageRotationOneTime() {
 }
 
 await fixImageRotationOneTime();
+
+// The rotation fix above overwrites files in place, but /api/uploads/[filename]
+// serves them with a 1-year immutable Cache-Control header, so browsers that
+// already loaded the sideways version keep showing it from cache even though
+// the file on disk is now correct. Renaming the corrected files to fresh
+// filenames (and updating the DB references) forces every viewer to fetch the
+// new content instead of relying on a hard refresh. One-time, resumable.
+// A whole-batch marker (not per-file) is enough here: renaming + a DB update
+// is cheap and fast, unlike the image re-encoding above, so there is no OOM
+// risk to guard against with incremental resume. A per-file "done" set would
+// actually be wrong here, since after the first rename the original filename
+// no longer exists to compare against on the next boot.
+const CACHE_BUST_MARKER = path.join(dataDir, '.rotation-fix-cachebust-2026-09-applied');
+
+async function cacheBustRotatedImagesOneTime() {
+  if (existsSync(CACHE_BUST_MARKER)) return;
+
+  const files = await readdir(UPLOADS_DIR).catch(() => [] as string[]);
+  const rotatedFiles = files.filter((f) => f.endsWith('.webp') && !ROTATION_FIX_SKIP.has(f));
+
+  const updateProductImages = db.prepare('UPDATE product_images SET path = ? WHERE path = ?');
+  const updateLegacyProducts = db.prepare('UPDATE products SET image_path = ? WHERE image_path = ?');
+
+  for (const file of rotatedFiles) {
+    const oldPath = `/api/uploads/${file}`;
+    const newFile = `${nanoid()}.webp`;
+    const newPath = `/api/uploads/${newFile}`;
+    try {
+      await rename(path.join(UPLOADS_DIR, file), path.join(UPLOADS_DIR, newFile));
+      updateProductImages.run(newPath, oldPath);
+      updateLegacyProducts.run(newPath, oldPath);
+    } catch (err) {
+      console.error(`No se pudo renombrar ${file} para invalidar caché`, err);
+    }
+  }
+
+  await writeFile(CACHE_BUST_MARKER, new Date().toISOString());
+}
+
+await cacheBustRotatedImagesOneTime();
 
 function seed() {
   const categoryCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as { c: number }).c;
