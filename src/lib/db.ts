@@ -196,6 +196,52 @@ async function cacheBustRotatedImagesOneTime() {
 
 await cacheBustRotatedImagesOneTime();
 
+// Second recovery pass: the OOM crash during the first rotation-fix deploy
+// left an unknown subset of files rotated twice (partially applied before the
+// crash, then reapplied in full on the next boot since progress wasn't
+// persisted yet at that point). A full manual re-audit of all 42 corrected
+// images against the live site found 7 that were still wrong and determined
+// the exact fix for each by trial rotation + visual confirmation. Renames to
+// a fresh filename again, for the same cache-busting reason as above.
+const SECOND_ROTATION_FIX_MARKER = path.join(dataDir, '.rotation-fix-round2-2026-09-applied');
+const SECOND_ROTATION_FIX: Record<string, number> = {
+  'je-WsFRjjXHpa2WQw0TLc.webp': 270,
+  '_GPJ0nDZpGgswhQyMIlle.webp': 180,
+  'gOcL84sjZENq2voIRl-mt.webp': 270,
+  'UgT2RqdzgH39lIMdRq2Cy.webp': 270,
+  'P1kRsDhhHnHY3Os8gNp1W.webp': 270,
+  'f7w-W5C0jqYK0o4JdIYsK.webp': 270,
+  '8Qv-_eu0fgIXVXPsc2CST.webp': 270,
+};
+
+async function fixSecondRoundRotationErrorsOneTime() {
+  if (existsSync(SECOND_ROTATION_FIX_MARKER)) return;
+
+  const updateProductImages = db.prepare('UPDATE product_images SET path = ? WHERE path = ?');
+  const updateLegacyProducts = db.prepare('UPDATE products SET image_path = ? WHERE image_path = ?');
+
+  for (const [file, angle] of Object.entries(SECOND_ROTATION_FIX)) {
+    const full = path.join(UPLOADS_DIR, file);
+    if (!existsSync(full)) continue;
+    try {
+      const buffer = await sharp(full).rotate(angle).webp({ quality: 80 }).toBuffer();
+      const newFile = `${nanoid()}.webp`;
+      await writeFile(path.join(UPLOADS_DIR, newFile), buffer);
+      const oldPath = `/api/uploads/${file}`;
+      const newPath = `/api/uploads/${newFile}`;
+      updateProductImages.run(newPath, oldPath);
+      updateLegacyProducts.run(newPath, oldPath);
+      await unlink(full);
+    } catch (err) {
+      console.error(`No se pudo aplicar la segunda corrección de rotación a ${file}`, err);
+    }
+  }
+
+  await writeFile(SECOND_ROTATION_FIX_MARKER, new Date().toISOString());
+}
+
+await fixSecondRoundRotationErrorsOneTime();
+
 function seed() {
   const categoryCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as { c: number }).c;
   if (categoryCount === 0) {
