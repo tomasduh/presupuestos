@@ -1,7 +1,9 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync } from 'node:fs';
+import { readdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
+import sharp from 'sharp';
 
 const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const uploadsDir = path.join(dataDir, 'uploads');
@@ -71,6 +73,36 @@ function migrateExistingProductImages() {
 }
 
 migrateExistingProductImages();
+
+const LEGACY_IMAGE_EXT = /\.(jpe?g|png|gif)$/i;
+
+async function migrateImagesToWebp() {
+  const files = await readdir(UPLOADS_DIR).catch(() => [] as string[]);
+  const legacyFiles = files.filter((f) => LEGACY_IMAGE_EXT.test(f));
+  if (legacyFiles.length === 0) return;
+
+  const updateProductImages = db.prepare('UPDATE product_images SET path = ? WHERE path = ?');
+  const updateLegacyProducts = db.prepare('UPDATE products SET image_path = ? WHERE image_path = ?');
+
+  for (const file of legacyFiles) {
+    const oldPath = `/api/uploads/${file}`;
+    const newFile = file.replace(LEGACY_IMAGE_EXT, '.webp');
+    const newPath = `/api/uploads/${newFile}`;
+    try {
+      const buffer = await sharp(path.join(UPLOADS_DIR, file), { animated: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+      await writeFile(path.join(UPLOADS_DIR, newFile), buffer);
+      updateProductImages.run(newPath, oldPath);
+      updateLegacyProducts.run(newPath, oldPath);
+      await unlink(path.join(UPLOADS_DIR, file));
+    } catch (err) {
+      console.error(`No se pudo convertir ${file} a webp`, err);
+    }
+  }
+}
+
+await migrateImagesToWebp();
 
 function seed() {
   const categoryCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as { c: number }).c;
