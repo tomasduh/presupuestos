@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Category, Product } from '../lib/types';
 import { formatCOP } from '../lib/format';
-import { FiPlus, FiEdit2, FiTrash2, FiImage, FiUpload, FiTag } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiImage, FiUpload, FiTag, FiX } from 'react-icons/fi';
 import AccordionSection from './AccordionSection';
 
 interface FormState {
@@ -9,10 +9,10 @@ interface FormState {
   name: string;
   price: string;
   category_id: string;
-  image_path: string | null;
+  images: string[];
 }
 
-const emptyForm: FormState = { id: null, name: '', price: '', category_id: '', image_path: null };
+const emptyForm: FormState = { id: null, name: '', price: '', category_id: '', images: [] };
 
 export default function ProductManager() {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -66,29 +66,40 @@ export default function ProductManager() {
       name: p.name,
       price: String(p.price),
       category_id: p.category_id ?? '',
-      image_path: p.image_path,
+      images: p.images,
     });
     setError('');
     setShowForm(true);
     setNewCategoryMode(false);
   }
 
-  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function handleImagesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
     setUploading(true);
     setError('');
-    const fd = new FormData();
-    fd.append('image', file);
-    const res = await fetch('/api/upload', { method: 'POST', body: fd });
-    setUploading(false);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body.error ?? 'No se pudo subir la imagen');
-      return;
+    const uploaded: string[] = [];
+    for (const file of files) {
+      const fd = new FormData();
+      fd.append('image', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error ?? 'No se pudo subir la imagen');
+        continue;
+      }
+      const body = await res.json();
+      uploaded.push(body.path);
     }
-    const body = await res.json();
-    setForm((f) => ({ ...f, image_path: body.path }));
+    setUploading(false);
+    if (uploaded.length > 0) {
+      setForm((f) => ({ ...f, images: [...f.images, ...uploaded] }));
+    }
+  }
+
+  function removeImage(imagePath: string) {
+    setForm((f) => ({ ...f, images: f.images.filter((p) => p !== imagePath) }));
   }
 
   async function createCategory() {
@@ -149,7 +160,7 @@ export default function ProductManager() {
       name: form.name.trim(),
       price,
       category_id: form.category_id || null,
-      image_path: form.image_path,
+      images: form.images,
     };
     const res = await fetch(form.id ? `/api/products/${form.id}` : '/api/products', {
       method: form.id ? 'PUT' : 'POST',
@@ -249,18 +260,36 @@ export default function ProductManager() {
 
           <div className="field">
             <label>
-              <FiUpload style={{ verticalAlign: 'middle', marginRight: 4 }} />
-              Imagen (opcional)
+              <FiImage style={{ verticalAlign: 'middle', marginRight: 4 }} />
+              Imágenes (opcional)
             </label>
-            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleImageChange} />
-            {uploading && <p className="page-subtitle">Subiendo imagen...</p>}
-            {form.image_path && (
-              <img
-                src={form.image_path}
-                alt="preview"
-                style={{ marginTop: 10, width: 90, height: 90, objectFit: 'cover', borderRadius: 8 }}
-              />
-            )}
+            <input
+              id="product-images-input"
+              className="file-input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              onChange={handleImagesChange}
+            />
+            <div className="image-uploader">
+              {form.images.map((imagePath) => (
+                <div className="image-thumb" key={imagePath}>
+                  <img src={imagePath} alt="preview" />
+                  <button
+                    type="button"
+                    className="danger image-thumb-remove"
+                    onClick={() => removeImage(imagePath)}
+                    title="Quitar imagen"
+                  >
+                    <FiX size={12} />
+                  </button>
+                </div>
+              ))}
+              <label htmlFor="product-images-input" className="image-add-btn">
+                <FiUpload size={16} />
+                {uploading ? 'Subiendo...' : 'Agregar'}
+              </label>
+            </div>
           </div>
 
           {error && <p className="error-text">{error}</p>}
@@ -352,17 +381,22 @@ export default function ProductManager() {
               {items.map((p) => (
                 <div className="card" key={p.id}>
                   {p.image_path ? (
-                    <img
-                      src={p.image_path}
-                      alt={p.name}
-                      style={{
-                        width: '100%',
-                        height: 120,
-                        objectFit: 'cover',
-                        borderRadius: 8,
-                        marginBottom: 10,
-                      }}
-                    />
+                    <div style={{ position: 'relative', marginBottom: 10 }}>
+                      <img
+                        src={p.image_path}
+                        alt={p.name}
+                        style={{
+                          width: '100%',
+                          height: 120,
+                          objectFit: 'cover',
+                          borderRadius: 8,
+                          display: 'block',
+                        }}
+                      />
+                      {p.images.length > 1 && (
+                        <span className="image-count-badge">+{p.images.length - 1}</span>
+                      )}
+                    </div>
                   ) : (
                     <div
                       style={{

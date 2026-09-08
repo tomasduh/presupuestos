@@ -44,7 +44,33 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(budget_id, product_id)
   );
+
+  CREATE TABLE IF NOT EXISTS product_images (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    path TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
+
+function migrateExistingProductImages() {
+  const products = db
+    .prepare(
+      `SELECT p.id, p.image_path FROM products p
+       WHERE p.image_path IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM product_images pi WHERE pi.product_id = p.id)`
+    )
+    .all() as { id: string; image_path: string }[];
+  const insert = db.prepare(
+    'INSERT INTO product_images (id, product_id, path, sort_order) VALUES (?, ?, ?, 0)'
+  );
+  for (const p of products) {
+    insert.run(nanoid(), p.id, p.image_path);
+  }
+}
+
+migrateExistingProductImages();
 
 function seed() {
   const categoryCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as { c: number }).c;
