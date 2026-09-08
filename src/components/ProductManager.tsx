@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Category, Product } from '../lib/types';
 import { formatCOP } from '../lib/format';
-import { FiPlus, FiEdit2, FiTrash2, FiImage, FiUpload, FiTag, FiX, FiRotateCw } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiImage, FiUpload, FiTag, FiX, FiRotateCw, FiRotateCcw } from 'react-icons/fi';
 import AccordionSection from './AccordionSection';
 
 interface FormState {
@@ -106,13 +106,15 @@ export default function ProductManager() {
   // Manual fallback for when a photo's EXIF orientation is missing or wrong
   // (common with images that already passed through some other app): rotate
   // it 90° at a time until it looks right, instead of guessing automatically.
-  async function rotateImage(imagePath: string) {
+  // Both directions are offered so a 3-click fix in one direction is always
+  // a 1-click fix in the other.
+  async function rotateImage(imagePath: string, direction: 'cw' | 'ccw') {
     setRotatingImage(imagePath);
     try {
       const res = await fetch('/api/uploads/rotate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: imagePath }),
+        body: JSON.stringify({ path: imagePath, direction }),
       });
       if (!res.ok) return;
       const { path: newPath } = await res.json();
@@ -297,10 +299,19 @@ export default function ProductManager() {
                   <img src={imagePath} alt="preview" />
                   <button
                     type="button"
-                    className="secondary image-thumb-rotate"
-                    onClick={() => rotateImage(imagePath)}
+                    className="secondary image-thumb-rotate-ccw"
+                    onClick={() => rotateImage(imagePath, 'ccw')}
                     disabled={rotatingImage === imagePath}
-                    title="Rotar imagen"
+                    title="Rotar a la izquierda"
+                  >
+                    <FiRotateCcw size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary image-thumb-rotate-cw"
+                    onClick={() => rotateImage(imagePath, 'cw')}
+                    disabled={rotatingImage === imagePath}
+                    title="Rotar a la derecha"
                   >
                     <FiRotateCw size={12} />
                   </button>

@@ -11,6 +11,7 @@ export const POST: APIRoute = async ({ request }) => {
   const body = await request.json().catch(() => ({}));
   const imagePath = String(body.path ?? '');
   const filename = imagePath.replace(/^\/api\/uploads\//, '');
+  const angle = body.direction === 'ccw' ? 270 : 90;
 
   if (!FILENAME_RE.test(filename)) {
     return new Response(JSON.stringify({ error: 'Ruta de imagen inválida' }), { status: 400 });
@@ -19,7 +20,7 @@ export const POST: APIRoute = async ({ request }) => {
   const full = path.join(UPLOADS_DIR, filename);
 
   try {
-    const buffer = await sharp(full).rotate(90).webp({ quality: 80 }).toBuffer();
+    const buffer = await sharp(full).rotate(angle).webp({ quality: 80 }).toBuffer();
     const newFilename = `${nanoid()}.webp`;
     await writeFile(path.join(UPLOADS_DIR, newFilename), buffer);
     await unlink(full).catch(() => {});

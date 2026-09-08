@@ -414,7 +414,8 @@ details[open] > .accordion-summary .accordion-chevron {
 }
 
 .image-thumb-remove,
-.image-thumb-rotate {
+.image-thumb-rotate-cw,
+.image-thumb-rotate-ccw {
   position: absolute;
   top: -7px;
   width: 20px;
@@ -431,8 +432,12 @@ details[open] > .accordion-summary .accordion-chevron {
   right: -7px;
 }
 
-.image-thumb-rotate {
+.image-thumb-rotate-ccw {
   left: -7px;
+}
+
+.image-thumb-rotate-cw {
+  left: 16px;
 }
 
 .image-add-btn {
