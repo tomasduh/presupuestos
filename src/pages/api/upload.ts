@@ -35,6 +35,7 @@ export const POST: APIRoute = async ({ request }) => {
   let outputBuffer: Buffer;
   try {
     outputBuffer = await sharp(inputBuffer, { animated: true })
+      .rotate()
       .webp({ quality: WEBP_QUALITY })
       .toBuffer();
   } catch {

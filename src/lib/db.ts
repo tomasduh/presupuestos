@@ -90,6 +90,7 @@ async function migrateImagesToWebp() {
     const newPath = `/api/uploads/${newFile}`;
     try {
       const buffer = await sharp(path.join(UPLOADS_DIR, file), { animated: true })
+        .rotate()
         .webp({ quality: 80 })
         .toBuffer();
       await writeFile(path.join(UPLOADS_DIR, newFile), buffer);
@@ -103,6 +104,44 @@ async function migrateImagesToWebp() {
 }
 
 await migrateImagesToWebp();
+
+// One-time recovery fix: the first version of migrateImagesToWebp() converted
+// legacy images without applying EXIF auto-rotation, so most photos (taken in
+// portrait) were saved sideways and the sources were already deleted. This
+// re-rotates the affected files exactly once, using a manually verified list
+// of the images that were already correctly oriented. Safe to delete once
+// applied (guarded by a marker file so it never runs twice).
+const ROTATION_FIX_MARKER = path.join(dataDir, '.rotation-fix-2026-09-applied');
+const ROTATION_FIX_SKIP = new Set([
+  'uRkCpUQH6YwPt-hBtZeFP.webp',
+  'AqYcNjBc4oHKGAKrF5lvb.webp',
+  'S8GOykyhqTBtkCRoelmef.webp',
+  'cUwiDEW-NZyKTHjLev4zo.webp',
+  'dkwS9aVkTunVxRVBXR1vh.webp',
+]);
+
+async function fixImageRotationOneTime() {
+  if (existsSync(ROTATION_FIX_MARKER)) return;
+
+  const files = await readdir(UPLOADS_DIR).catch(() => [] as string[]);
+  const webpFiles = files.filter((f) => f.endsWith('.webp'));
+
+  for (const file of webpFiles) {
+    const angle = ROTATION_FIX_SKIP.has(file) ? 0 : 90;
+    if (angle === 0) continue;
+    const full = path.join(UPLOADS_DIR, file);
+    try {
+      const buffer = await sharp(full).rotate(angle).webp({ quality: 80 }).toBuffer();
+      await writeFile(full, buffer);
+    } catch (err) {
+      console.error(`No se pudo corregir la rotación de ${file}`, err);
+    }
+  }
+
+  await writeFile(ROTATION_FIX_MARKER, new Date().toISOString());
+}
+
+await fixImageRotationOneTime();
 
 function seed() {
   const categoryCount = (db.prepare('SELECT COUNT(*) as c FROM categories').get() as { c: number }).c;
