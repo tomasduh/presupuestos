@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { nanoid } from 'nanoid';
 
-const dataDir = path.join(process.cwd(), 'data');
+const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const uploadsDir = path.join(dataDir, 'uploads');
 if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
 if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
