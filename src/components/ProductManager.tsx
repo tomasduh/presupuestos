@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Category, Product } from '../lib/types';
 import { formatCOP } from '../lib/format';
-import { FiPlus, FiEdit2, FiTrash2, FiImage, FiUpload, FiTag, FiX } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiImage, FiUpload, FiTag, FiX, FiRotateCw } from 'react-icons/fi';
 import AccordionSection from './AccordionSection';
 
 interface FormState {
@@ -21,6 +21,7 @@ export default function ProductManager() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [uploading, setUploading] = useState(false);
+  const [rotatingImage, setRotatingImage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('');
@@ -100,6 +101,25 @@ export default function ProductManager() {
 
   function removeImage(imagePath: string) {
     setForm((f) => ({ ...f, images: f.images.filter((p) => p !== imagePath) }));
+  }
+
+  // Manual fallback for when a photo's EXIF orientation is missing or wrong
+  // (common with images that already passed through some other app): rotate
+  // it 90° at a time until it looks right, instead of guessing automatically.
+  async function rotateImage(imagePath: string) {
+    setRotatingImage(imagePath);
+    try {
+      const res = await fetch('/api/uploads/rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: imagePath }),
+      });
+      if (!res.ok) return;
+      const { path: newPath } = await res.json();
+      setForm((f) => ({ ...f, images: f.images.map((p) => (p === imagePath ? newPath : p)) }));
+    } finally {
+      setRotatingImage(null);
+    }
   }
 
   async function createCategory() {
@@ -275,6 +295,15 @@ export default function ProductManager() {
               {form.images.map((imagePath) => (
                 <div className="image-thumb" key={imagePath}>
                   <img src={imagePath} alt="preview" />
+                  <button
+                    type="button"
+                    className="secondary image-thumb-rotate"
+                    onClick={() => rotateImage(imagePath)}
+                    disabled={rotatingImage === imagePath}
+                    title="Rotar imagen"
+                  >
+                    <FiRotateCw size={12} />
+                  </button>
                   <button
                     type="button"
                     className="danger image-thumb-remove"
